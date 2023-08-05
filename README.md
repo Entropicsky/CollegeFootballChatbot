@@ -26,7 +26,7 @@ The chatbot is built as a Flask web application. To use it:
 1. Clone the repository
 2. Sign up for API keys from College Football Data and OpenAI
 3. Set the API keys as environment variables
-4. Run `python app.py` to start the Flask web server
+4. Run `python main.py` to start the Flask web server
 5. Navigate to `http://localhost:5000` 
 6. Type your question in the input field and click Submit
 
