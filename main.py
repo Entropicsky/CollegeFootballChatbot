@@ -5,6 +5,7 @@ from cfbd.rest import ApiException
 from pprint import pprint
 import openai
 import json
+from datetime import datetime
 import os
 
 from flask import Flask, request, render_template
@@ -222,6 +223,53 @@ def get_game_info(year, team1, team2):
 
     except Exception as e:
         print(f"An error occurred when calling get_specific_team_matchup_info: {e}")
+        return None
+
+
+def get_team_info(team=None, conference=None):
+    print(f"Getting team info for team {team} and conference {conference}")
+    try:
+        args = {k: v for k, v in {"conference": conference}.items() if v is not None}
+        team_info = TeamsAPI.get_teams(**args)
+        team_info = [info.to_dict() for info in team_info]  # Convert Team objects to dictionaries
+        if team is not None:
+            team_info = [info for info in team_info if info['school'] == team]
+        return team_info
+    except Exception as e:
+        print(f"An error occurred when calling get_team_info: {e}")
+        return None
+
+def play_next(team):
+    print(f"Getting next game for {team}")
+    try:
+        # Get the current year and date
+        current_year = datetime.now().year
+        current_date = datetime.now().date()
+
+        # Get the games for the current year for the specified team
+        games = get_list_of_cfb_games(year=current_year, team=team)
+
+        # Filter the games to find the next game that is after the current date
+        next_game = next((game for game in games if datetime.strptime(game['start_date'], '%Y-%m-%dT%H:%M:%S.%fZ').date() > current_date), None)
+
+        if next_game is None:
+            return f"{team} has no more games this year."
+
+        return next_game
+    except Exception as e:
+        print(f"An error occurred when calling play_next: {e}")
+        return None
+
+def play_next_conference(conference, division=None):
+    print(f"Getting next game for conference {conference} and division {division}")
+    try:
+        teams = get_team_info(conference=conference)
+        if division is not None:
+            teams = [team for team in teams if team['division'] == division]
+        next_games = {team['school']: play_next(team['school']) for team in teams}
+        return next_games
+    except Exception as e:
+        print(f"An error occurred when calling play_next_conference: {e}")
         return None
 
 
@@ -694,6 +742,130 @@ functions.append({
     }
 })
 
+functions.append({
+    "name": "play_next",
+    "output": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "season": {"type": "integer"},
+            "week": {"type": "integer"},
+            "season_type": {"type": "string"},
+            "start_date": {"type": "string"},
+            "neutral_site": {"type": "boolean"},
+            "conference_game": {"type": "boolean"},
+            "attendance": {"type": "integer"},
+            "venue_id": {"type": "integer"},
+            "venue": {"type": "string"},
+            "home_team": {"type": "string"},
+            "home_conference": {"type": "string"},
+            "home_points": {"type": "integer"},
+            "home_line_scores": {"type": "array", "items": {"type": "integer"}},
+            "away_team": {"type": "string"},
+            "away_conference": {"type": "string"},
+            "away_points": {"type": "integer"},
+            "away_line_scores": {"type": "array", "items": {"type": "integer"}},
+            "excitement_index": {"type": "number"}
+        }
+    },
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team": {"type": "string"},
+        }
+    }
+})
+
+functions.append({
+    "name": "get_team_info",
+    "output": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "school": {"type": "string"},
+                "mascot": {"type": "string"},
+                "abbreviation": {"type": "string"},
+                "alt_name_1": {"type": "string"},
+                "alt_name_2": {"type": "string"},
+                "alt_name_3": {"type": "string"},
+                "classification": {"type": "string"},
+                "conference": {"type": "string"},
+                "division": {"type": "string"},
+                "color": {"type": "string"},
+                "alt_color": {"type": "string"},
+                "logos": {"type": "array", "items": {"type": "string"}},
+                "twitter": {"type": "string"},
+                "location": {
+                    "type": "object",
+                    "properties": {
+                        "venue_id": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "city": {"type": "string"},
+                        "state": {"type": "string"},
+                        "zip": {"type": "string"},
+                        "country_code": {"type": "string"},
+                        "timezone": {"type": "string"},
+                        "latitude": {"type": "number"},
+                        "longitude": {"type": "number"},
+                        "elevation": {"type": "number"},
+                        "capacity": {"type": "integer"},
+                        "year_constructed": {"type": "integer"},
+                        "grass": {"type": "boolean"},
+                        "dome": {"type": "boolean"}
+                    }
+                }
+            }
+        }
+    },
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team": {"type": "string", "default": None},
+            "conference": {"type": "string", "default": None},
+        }
+    }
+})
+
+functions.append({
+    "name": "play_next_conference",
+    "output": {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "season": {"type": "integer"},
+                "week": {"type": "integer"},
+                "season_type": {"type": "string"},
+                "start_date": {"type": "string"},
+                "neutral_site": {"type": "boolean"},
+                "conference_game": {"type": "boolean"},
+                "attendance": {"type": "integer"},
+                "venue_id": {"type": "integer"},
+                "venue": {"type": "string"},
+                "home_team": {"type": "string"},
+                "home_conference": {"type": "string"},
+                "home_points": {"type": "integer"},
+                "home_line_scores": {"type": "array", "items": {"type": "integer"}},
+                "away_team": {"type": "string"},
+                "away_conference": {"type": "string"},
+                "away_points": {"type": "integer"},
+                "away_line_scores": {"type": "array", "items": {"type": "integer"}},
+                "excitement_index": {"type": "number"}
+            }
+        }
+    },
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conference": {"type": "string"},
+            "division": {"type": "string", "default": None},
+        }
+    }
+})
+
 available_functions = {
     "get_list_of_cfb_games": get_list_of_cfb_games,
     "get_team_records": get_team_records,
@@ -704,7 +876,10 @@ available_functions = {
     "get_full_roster": get_full_roster,
     "get_game_info": get_game_info,
     "get_team_matchup_history": get_team_matchup_history,
-    "get_team_records_multiyear": get_team_records_multiyear
+    "get_team_records_multiyear": get_team_records_multiyear,
+    "play_next": play_next,
+    "get_team_info": get_team_info,
+    "play_next_conference": play_next_conference,
 }
 
 
