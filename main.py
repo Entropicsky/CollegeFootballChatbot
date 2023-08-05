@@ -646,10 +646,12 @@ available_functions = {
 
 
 def run_conversation(user_input):  # Add user_input as an argument
+    from datetime import date
+    today = date.today()
     messages = [
     {
         "role": "system",
-        "content": "You are a world-cass expert in college football. Provide helpful but concise answers to the following questions in MARKDOWN FORMAT. If showing a game result, include the score in your answer, as per this example: Week 4 (Sept 24): Alabama 55, Vanderbilt 3 (Id: {id}).",
+        "content": f"You are a world-cass expert in college football. Provide helpful but concise answers to the following questions in MARKDOWN FORMAT. If showing a game result, include the score in your answer, as per this example: Week 4 (Sept 24): Alabama 55, Vanderbilt 3 (Id: {{id}}). Today's date is {today}.",
     }
     ]   
 
