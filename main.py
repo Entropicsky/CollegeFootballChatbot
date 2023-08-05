@@ -94,6 +94,23 @@ def get_team_records(year=None, team=None, conference=None):
     team_records = games.get_team_records(**args)
     return [record.to_dict() for record in team_records]  # Convert each TeamRecord object to a dictionary
 
+def get_team_records_multiyear(start_year, end_year, team, conference=None):
+    if end_year - start_year > 5:
+        keys_to_remove = ['conferenceGames', 'homeGames', 'awayGames']
+    else:
+        keys_to_remove = []
+
+    records = []
+    for year in range(start_year, end_year + 1):
+        print(f"Getting team records for {year} {team} {conference}")
+        year_records = get_team_records(year=year, team=team, conference=conference)
+        for record in year_records:
+            for key in keys_to_remove:
+                record.pop(key, None)
+        records.extend(year_records)
+    return records
+
+
 def get_list_of_cfb_games(year, week=None, season_type=None, team=None, home=None, away=None, conference=None, division=None, id=None):
     # Only include parameters in the arguments if they are not None
     print(f"Getting games for {year} {week} {season_type} {team} {home} {away} {conference} {division} {id}")
@@ -647,6 +664,36 @@ functions.append({
     }
 })
 
+functions.append({
+    "name": "get_team_records_multiyear",
+    "output": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "year": {"type": "integer"},
+                "team": {"type": "string"},
+                "conference": {"type": "string"},
+                "division": {"type": "string"},
+                "expected_wins": {"type": "number"},
+                "total": {"type": "object"},
+                "conference_games": {"type": "object"},
+                "home_games": {"type": "object"},
+                "away_games": {"type": "object"},
+            }
+        }
+    },
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "start_year": {"type": "integer"},
+            "end_year": {"type": "integer"},
+            "team": {"type": "string"},
+            "conference": {"type": "string", "default": None},
+        }
+    }
+})
+
 available_functions = {
     "get_list_of_cfb_games": get_list_of_cfb_games,
     "get_team_records": get_team_records,
@@ -656,7 +703,8 @@ available_functions = {
     "get_roster_by_position": get_roster_by_position,
     "get_full_roster": get_full_roster,
     "get_game_info": get_game_info,
-    "get_team_matchup_history": get_team_matchup_history
+    "get_team_matchup_history": get_team_matchup_history,
+    "get_team_records_multiyear": get_team_records_multiyear
 }
 
 
