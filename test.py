@@ -9,7 +9,7 @@ import json
 
 # Configure API key authorization: ApiKeyAuth
 configuration = cfbd.Configuration()
-configuration.api_key['Authorization'] = 'mq0v2Nki3PHUE5VTLGgddGzNkJYyYKrzGa+f3AjkQwYp+L8c/zGSvbljHRyLwQ4E'
+configuration.api_key['Authorization'] = os.getenv('CFBD_API_KEY')
 configuration.api_key_prefix['Authorization'] = 'Bearer'
 
 
