@@ -94,13 +94,23 @@ def get_team_records(year=None, team=None, conference=None):
     team_records = games.get_team_records(**args)
     return [record.to_dict() for record in team_records]  # Convert each TeamRecord object to a dictionary
 
-
-def get_list_of_cfb_games(year, week=None, season_type="regular", team=None, home=None, away=None, conference=None, division=None, id=None):
+def get_list_of_cfb_games(year, week=None, season_type=None, team=None, home=None, away=None, conference=None, division=None, id=None):
     # Only include parameters in the arguments if they are not None
     print(f"Getting games for {year} {week} {season_type} {team} {home} {away} {conference} {division} {id}")
-    args = {k: v for k, v in {"year": year, "week": week, "season_type": season_type, "team": team, "home": home, "away": away, "conference": conference, "division": division, "id": id}.items() if v is not None}
-    gamelist = games.get_games(**args)
+    args = {k: v for k, v in {"year": year, "week": week, "team": team, "home": home, "away": away, "conference": conference, "division": division, "id": id}.items() if v is not None}
+    
+    # If no season_type is specified, call the games.get_games API for both season_type="regular" and season_type="postseason" and combine the results
+    if season_type is None:
+        args["season_type"] = "regular"
+        regular_season_games = games.get_games(**args)
+        args["season_type"] = "postseason"
+        postseason_games = games.get_games(**args)
+        gamelist = regular_season_games + postseason_games
+    else:
+        gamelist = games.get_games(**args)
+    
     return [game.to_dict() for game in gamelist]  # Convert each Game object to a dictionary
+
     
 def get_team_game_stats(year, game_id, week=None, season_type=None, team=None, conference=None, classification=None):
     print(f"Getting team game stats for {year} {game_id} {week} {season_type} {team} {conference} {classification}")
@@ -145,11 +155,12 @@ def get_game_info(year, team1, team2):
     print(f"Getting team vs team matchup info for {year} {team1} {team2}")
     try:
         # Get the games for team1 in the regular season and post season
-        regular_season_games = get_list_of_cfb_games(year=year, season_type="regular", team=team1)
-        post_season_games = get_list_of_cfb_games(year=year, season_type="postseason", team=team1)
+        #regular_season_games = get_list_of_cfb_games(year=year, season_type="regular", team=team1)
+        #post_season_games = get_list_of_cfb_games(year=year, season_type="postseason", team=team1)
 
         # Combine the regular season and post season games
-        all_games = regular_season_games + post_season_games
+        #all_games = regular_season_games + post_season_games
+        all_games = get_list_of_cfb_games(year=year, team=team1)
 
         # Find the game where team1 played against team2
         matchup_game = next((game for game in all_games if game['home_team'] == team2 or game['away_team'] == team2), None)
@@ -157,10 +168,15 @@ def get_game_info(year, team1, team2):
         if matchup_game is None:
             return f"{team1} did not play against {team2} in the {year} season."
 
-        # Get the game stats for the matchup game
-        game_stats = get_team_game_stats(year=year, game_id=matchup_game['id'])
-        # Get the player game stats for the matchup game
-        player_game_stats = get_player_game_stats(year=year, game_id=matchup_game['id'])
+        # Check if the year is greater than or equal to 2001 as the API only has data for these years
+        if year >= 2001:
+            # Get the game stats for the matchup game
+            game_stats = get_team_game_stats(year=year, game_id=matchup_game['id'])
+            # Get the player game stats for the matchup game
+            player_game_stats = get_player_game_stats(year=year, game_id=matchup_game['id'])
+        else:
+            game_stats = None
+            player_game_stats = None
 
         # If no game_stats or player_game_stats found, return the matchup_game info
         if not game_stats and not player_game_stats:
