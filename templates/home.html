@@ -111,10 +111,12 @@
         </div>
         <input type="text" id="textInput" placeholder="Type your question here...">
         <input type="button" value="Send" onclick="getReply()">
+        <div id="htmlbox"></div>
         <p>
             Sample questions:
                 <ul>          
                     <li><a href="#" onclick="fillAndSend('What is North Carolinas lifetime record against Duke? What is the most lopsided game in the series?')">What is North Carolina's lifetime record against Duke? What is the most lopsided game in the series?</a></li> 
+                    <li><a href="#" onclick="fillAndSend('Who does Georgia play next?')">Who does Georgia play next?</a></li> 
                     <li><a href="#" onclick="fillAndSend('Who does Tufts play this year?')">Who does Tufts play this year?</a></li>
                     <li><a href="#" onclick="fillAndSend('Who were the quarterbacks for Cincinnati in 2021?')">Who were the quarterbacks for Cincinnati in 2021?</a></li>
                     <li><a href="#" onclick="fillAndSend('Who did Cincinnati play in their bowl game in 2022?')">Who did Cincinnati play in their bowl game in 2022?</a></li>
@@ -153,38 +155,49 @@
             }
             document.getElementById(tabName).style.display = "block";
             evt.currentTarget.className += " active";
+
+            // Only hide the chatbox when the History tab is active
+            if (tabName == "History") {
+                document.getElementById('chatbox').style.display = "none";
+            } else {
+                document.getElementById('chatbox').style.display = "block";
+            }
+
+            // Only hide the historybox when the Chat tab is active
+            if (tabName == "Chat") {
+                document.getElementById('historybox').style.display = "none";
+            } else {
+                document.getElementById('historybox').style.display = "block";
+            }
         }
 
         // Get the element with id="defaultOpen" and click on it
         document.getElementById("defaultOpen").click();
-    function getReply() {
-        let userText = document.getElementById('textInput').value;
-        document.getElementById('textInput').value = "";
+        function getReply() {
+            let userText = document.getElementById('textInput').value;
+            document.getElementById('textInput').value = "";
 
-        let userDiv = document.createElement("div");
-        userDiv.className = "message user";
-        userDiv.innerHTML = `<div class="label">You:</div><div class="content">${userText}</div>`;
-        document.getElementById('chatbox').innerHTML = ""; // Clear the chatbox
-        document.getElementById('chatbox').appendChild(userDiv.cloneNode(true)); // Add the user message to the chatbox
+            let userDiv = document.createElement("div");
+            userDiv.className = "message user";
+            userDiv.innerHTML = `You: <span id="user-response">${userText}</span>`;
+            document.getElementById('chatbox').innerHTML = ""; // Clear the chatbox
+            document.getElementById('chatbox').appendChild(userDiv); // Add the user message to the chatbox
+            document.getElementById('historybox').appendChild(userDiv.cloneNode(true)); // Add the user message to the historybox
 
-        let botDiv = document.createElement("div");
-        botDiv.className = "message bot";
-        botDiv.innerHTML = `<div class="label">Bot:</div><div class="content">...</div>`;
-        document.getElementById('chatbox').appendChild(botDiv.cloneNode(true)); // Add the bot message to the chatbox
+            let botDiv = document.createElement("div");
+            botDiv.className = "message bot";
+            botDiv.innerHTML = 'Bot: ...';
+            document.getElementById('chatbox').appendChild(botDiv);
 
-        // Add the user and bot messages to the history box
-        document.getElementById('historybox').appendChild(userDiv);
-        document.getElementById('historybox').appendChild(botDiv);
-
-        // Send this text to the Flask route
-        fetch(`/get?msg=${userText}`).then(response => response.text())
-            .then(data => {
-                botDiv.innerHTML = `<div class="label">Bot:</div><div class="content">${data}</div>`;
-                document.getElementById('chatbox').innerHTML = ""; // Clear the chatbox
-                document.getElementById('chatbox').appendChild(userDiv.cloneNode(true)); // Add the user message to the chatbox
-                document.getElementById('chatbox').appendChild(botDiv.cloneNode(true)); // Add the bot message to the chatbox
-            });
-    }
+            
+            // Send this text to the Flask route
+            fetch(`/get?msg=${userText}`).then(response => response.json())
+                .then(data => {
+                    botDiv.innerHTML = `Bot: <span id="bot-response">${data.llm_response}</span>`;
+                    document.getElementById('htmlbox').innerHTML = data.html_response;  // Add the HTML response to the 'htmlbox' div
+                    document.getElementById('historybox').appendChild(botDiv.cloneNode(true)); // Add the bot response to the historybox
+                });
+        }
     </script>
 </body>
 </html>
