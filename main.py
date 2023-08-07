@@ -4,25 +4,38 @@ import cfbd
 from cfbd.rest import ApiException
 from pprint import pprint
 import openai
+import folium
 import json
 from datetime import datetime
 import os
+import pandas as pd
+from collections import Counter
 
+from flask import Markup
 from flask import Flask, request, render_template
 app = Flask(__name__)
 
-from flask import Markup
+global_map_html = ""
 
 # setup the flast routing for the home page
 @app.route('/')
 def home():
     return render_template('home.html')
 
+@app.route('/map')
+def map():
+    global global_map_html
+    return global_map_html
+
+# Route responses back to the HTML after a get call from HTML
 @app.route('/get')
 def get_bot_response():
     user_input = request.args.get('msg')  # Get data from input field
     response = run_conversation(user_input)  # Pass user_input to run_conversation
-    return str(response)
+    return json.dumps({
+        "llm_response": response['llm_response'],
+        "html_response": response['html_response']
+    })
 
 
 
@@ -43,17 +56,78 @@ TeamsAPI = cfbd.TeamsApi(cfbd.ApiClient(configuration))
 valid_conferences = [conference.name for conference in conferences_api.get_conferences()]
 #print(f"Valid conferences: {valid_conferences}")
 
+import pandas as pd
+from datetime import datetime
 
-def get_team_matchup_history(team1, team2, min_year=None, max_year=None):
-    print(f"Getting matchup history for {team1} vs {team2} and years {min_year} to {max_year}")
+import pandas as pd
+from datetime import datetime
+
+def get_team_matchup_history(team1, team2, min_year=1869, max_year=None):
+    print(f"Getting matchup history for {team1} vs {team2} from {min_year} to {max_year}")
     try:
         args = {k: v for k, v in {"min_year": min_year, "max_year": max_year}.items() if v is not None}
-        matchup_info = TeamsAPI.get_team_matchup(team1, team2, **args)
-        return matchup_info.to_dict()
-    except Exception as e:
-        print(f"An error occurred when calling get_team_matchup_info: {e}")
-        return None
+        matchup_history = TeamsAPI.get_team_matchup(team1, team2, **args)
+        matchup_history = matchup_history.to_dict()  # Convert the TeamMatchup object to a dictionary
 
+        # Convert the games list to a DataFrame
+        games_df = pd.DataFrame(matchup_history['games'])
+
+        # Calculate summary statistics
+        win_counts = games_df['winner'].value_counts()
+        games_df['win_diff'] = games_df['home_score'].sub(games_df['away_score']).abs()
+        max_win_diff_game = games_df.loc[games_df['win_diff'].idxmax()]
+        max_win_diff = max_win_diff_game['win_diff']
+        max_win_diff_details = f"{max_win_diff_game['home_team']} {max_win_diff_game['home_score']} - {max_win_diff_game['away_team']} {max_win_diff_game['away_score']} on {datetime.strptime(max_win_diff_game['_date'], '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%b %d, %Y')}"
+
+        def longest_streak(s):
+            return (s != s.shift()).cumsum()[s].value_counts().max()
+
+        games_df['team1_streak'] = games_df['winner'].eq(team1).groupby((games_df['winner'].eq(team1) != games_df['winner'].eq(team1).shift()).cumsum()).transform('count') * games_df['winner'].eq(team1)
+        games_df['team2_streak'] = games_df['winner'].eq(team2).groupby((games_df['winner'].eq(team2) != games_df['winner'].eq(team2).shift()).cumsum()).transform('count') * games_df['winner'].eq(team2)
+
+        longest_streak_team1 = games_df['team1_streak'].max()
+        longest_streak_team2 = games_df['team2_streak'].max()
+
+        longest_streak_team1_years = games_df.loc[games_df['team1_streak'] == longest_streak_team1, 'season'].agg(['min', 'max']).tolist()
+        longest_streak_team2_years = games_df.loc[games_df['team2_streak'] == longest_streak_team2, 'season'].agg(['min', 'max']).tolist()     
+        
+        ties = len(games_df[games_df['winner'].isna()])
+
+
+
+        # Prepare the HTML response
+        html_response = f"<h2>History of the {team1} vs {team2} series from {min_year} to {max_year}</h2>"
+        html_response += f"<p>Total wins: {team1} - {win_counts.get(team1, 0)}, {team2} - {win_counts.get(team2, 0)}, Ties - {ties}</p>"
+        html_response += f"<p>Largest win differential: {max_win_diff} ({max_win_diff_details})</p>"
+        html_response += f"<p>Longest win streak: {team1} - {longest_streak_team1} ({longest_streak_team1_years[0]} to {longest_streak_team1_years[1]}), {team2} - {longest_streak_team2} ({longest_streak_team2_years[0]} to {longest_streak_team2_years[1]})</p>"
+ 
+        html_response += "<table><tr><th>Season</th><th>Week</th><th>Date</th><th>Winner</th><th>Venue</th><th>Home Team</th><th>Home Score</th><th>Away Team</th><th>Away Score</th><th>Win Diff.</th></tr>"
+        for _, game in games_df.iterrows():
+            # Format the date
+            date = datetime.strptime(game['_date'], "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%b-%d")
+            # Format the venue
+            venue = game['venue'] if game['venue'] else "-"
+            # Format the winner as "Team (Score-Score)"
+            winner = f"{game['winner']} ({game['home_score']}-{game['away_score']})" if game['winner'] == game['home_team'] else f"{game['winner']} ({game['away_score']}-{game['home_score']})"
+            # Calculate the win difference
+            win_diff = abs(game['home_score'] - game['away_score'])
+            # Bold the winning team
+            home_team = f"<b>{game['home_team']}</b>" if game['home_team'] == game['winner'] else game['home_team']
+            away_team = f"<b>{game['away_team']}</b>" if game['away_team'] == game['winner'] else game['away_team']
+            html_response += f"<tr><td>{game['season']}</td><td>{game['week']}</td><td>{date}</td><td>{winner}</td><td>{venue}</td><td>{home_team}</td><td>{game['home_score']}</td><td>{away_team}</td><td>{game['away_score']}</td><td>{win_diff}</td></tr>"
+        html_response += "</table>"
+
+        # Add a button to download the data as a CSV file
+        html_response += '<button onclick="downloadCSV()">Download as CSV</button>'
+
+        return {
+            "llmfunctiondata": matchup_history,
+            "html_response": html_response
+        }
+    except Exception as e:
+        print(f"An error occurred when calling get_team_matchup_history: {e}")
+        return None    
+    
 def get_roster_by_position(team, year, position):
     print(f"Getting roster for {team} in {year} for position {position}")
     try:
@@ -65,27 +139,123 @@ def get_roster_by_position(team, year, position):
         print(f"An error occurred when calling get_roster_by_position: {e}")
         return None
 
+
+
+global_map_html = ""
+
+
+
 def get_full_roster(team, year):
     print(f"Getting roster for {team} in {year}")
     try:
         roster = TeamsAPI.get_roster(team=team, year=year)
-        # Filter out the specified columns from the TeamsAPI json response
-        filtered_roster = [{k: v for k, v in player.to_dict().items() if k not in ["home_latitude", "home_longitude", "home_county_fips", "recruit_ids"]} for player in roster]
-        return filtered_roster
-    except Exception as e:
-        print(f"An error occurred when calling get_roster: {e}")
-        return None
+        # Convert each Player object to a dictionary
+        full_roster = [player.to_dict() for player in roster]
 
+        # Filter out the specified columns and sort the roster
+        filtered_roster = [{k: v for k, v in player.items() if k not in ["home_latitude", "home_longitude", "home_county_fips", "recruit_ids"]} for player in full_roster]
+        sorted_roster = sorted(filtered_roster, key=lambda x: (x['position'] if x['position'] is not None else '', x['year'] if x['year'] is not None else 0, x['jersey'] if x['jersey'] is not None else 0))
+
+        # Create a DataFrame from the roster
+        df = pd.DataFrame(sorted_roster)
+        print(df)
+        print(df['year'].isnull().sum())  # Print the number of null 'year' values
+        print(df['position'].isnull().sum())  # Print the number of null 'position' values
+
+        df['year'] = df['year'].fillna(0)  # Fill null 'year' values with 0
+        df['position'] = df['position'].fillna('Unknown')  # Fill null 'position' values with 'Unknown'
+
+        df['year'] = df['year'].astype(str)  # Convert 'year' to string
+
+        print(df['year'].isnull().count())  # Print the number of null 'year' values
+        print(df['position'].isnull().count())  # Print the number of null 'position' values
+        print(df)   
+
+        # Select only 'position' and 'year' columns
+        df = df[['position', 'year', 'last_name']]
+        print(df)
+
+        # Create a summary table of the number of players by position and year
+        summary_table = df.pivot_table(index='position', columns='year', aggfunc='count', fill_value=0, margins=True, margins_name='Total')
+ 
+        # Convert the summary table to HTML
+        summary_table_html = summary_table.to_html()
+
+        # Create a map centered around the United States
+        m = folium.Map(location=[37.8, -96], zoom_start=4)
+
+        # Add a marker for each player
+        for player in full_roster:
+            if player['home_latitude'] is not None and player['home_longitude'] is not None:
+                folium.Marker(
+                    location=[player['home_latitude'], player['home_longitude']],
+                    popup=f"{player['jersey']} {player['first_name']} {player['last_name']} - {player['position']} - {player['height'] // 12}'{player['height'] % 12}\" - {player['weight']} - {player['home_city']}, {player['home_state']}",
+                    icon=folium.Icon(icon="shield"),
+                ).add_to(m)
+
+        # Convert the map to HTML and store it in the global variable
+        global global_map_html
+        global_map_html = m._repr_html_()
+
+        # Prepare the HTML table
+        html_table = "<table><tr><th>Position</th><th>Year</th><th>Jersey</th><th>First Name</th><th>Last Name</th><th>Height</th><th>Weight</th><th>Home City</th><th>Home State</th></tr>"
+        for player in sorted_roster:
+            html_table += f"<tr><td>{player['position']}</td><td>{player['year']}</td><td>{player['jersey']}</td><td>{player['first_name']}</td><td>{player['last_name']}</td><td>{player['height']}</td><td>{player['weight']}</td><td>{player['home_city']}</td><td>{player['home_state']}</td></tr>"
+        html_table += "</table>"
+
+        # Prepare the HTML response
+        html_response = f"<h2>Roster for {team} in {year}</h2><p><a href='/map' target='_blank'>View Map by Player Hometown</a></p>" + "</p><h3>Summary by Position</h3><p>" + summary_table_html + "</p><h3>Full Roster</h3>" + html_table + "</p>"
+
+        return {
+            "llmfunctiondata": sorted_roster,
+            "html_response": html_response
+        }
+    except Exception as e:
+        print(f"An error occurred when calling get_full_roster: {e}")
+        return None
 
 def get_rankings(year, week=None, season_type=None):
     print(f"Getting rankings for {year} week {week} season type {season_type}")
     args = {k: v for k, v in {"year": year, "week": week, "season_type": season_type}.items() if v is not None}
     try:
         rankings = RankingsAPI.get_rankings(**args)
-        return [ranking.to_dict() for ranking in rankings]
+        rankings_list = [ranking.to_dict() for ranking in rankings]
+
+        # If week is None, only return the latest week to the LLM
+        if week is None:
+            latest_week = max(ranking['week'] for ranking in rankings_list)
+            llmfunctiondata = [ranking for ranking in rankings_list if ranking['week'] == latest_week]
+        else:
+            llmfunctiondata = rankings_list
+
+        # Prepare the HTML response
+        html_response = f"<h2>Rankings for {year}</h2>"
+        # Sort the rankings_list by week in descending order
+        rankings_list.sort(key=lambda x: x.get('week', 0), reverse=True)
+        for ranking in rankings_list:
+            html_response += f"<h3>{ranking.get('seasonType', 'N/A')} - Week {ranking.get('week', 'N/A')}</h3>"
+            # Create a dictionary to store the rankings by poll
+            rankings_by_poll = {}
+            for poll in ranking['polls']:
+                if poll['poll'] not in rankings_by_poll:
+                    rankings_by_poll[poll['poll']] = ["N/A"] * 25
+                for rank in poll['ranks']:
+                    rankings_by_poll[poll['poll']][rank.get('rank', 0) - 1] = f"{rank.get('school', 'N/A')} ({rank.get('conference', 'N/A')}, {rank.get('points', 'N/A')})"
+
+            # Prepare the HTML response for each week
+            html_response += "<table><tr><th>Rank</th>" + "".join([f"<th>{poll}</th>" for poll in rankings_by_poll.keys()]) + "</tr>"
+            for i in range(25):
+                html_response += "<tr><td>" + str(i + 1) + "</td>" + "".join([f"<td>{rankings_by_poll[poll][i]}</td>" for poll in rankings_by_poll.keys()]) + "</tr>"
+            html_response += "</table>"
+
+        return {
+            "llmfunctiondata": llmfunctiondata,
+            "html_response": html_response
+        }
     except Exception as e:
         print(f"An error occurred when calling get_rankings: {e}")
         return None
+
 
 
 def get_team_records(year=None, team=None, conference=None):
@@ -126,8 +296,41 @@ def get_list_of_cfb_games(year, week=None, season_type=None, team=None, home=Non
         gamelist = regular_season_games + postseason_games
     else:
         gamelist = games.get_games(**args)
+
+    gamelist = [game.to_dict() for game in gamelist]  # Convert each Game object to a dictionary
+
+    # Prepare the HTML response
+    # Prepare the HTML response
+    # Create a header with the year and non-blank parameters
+    header = f"Results for "
+    parameters = [f"{k.capitalize()}: {v}" for k, v in args.items() if v is not None]
+    header += ", ".join(parameters)
+    html_response = f"<h2>{header}</h2><ul>"
     
-    return [game.to_dict() for game in gamelist]  # Convert each Game object to a dictionary
+    html_response += "<table><tr><th>Game Date</th><th>Week</th><th>Matchup</th><th>Season Type</th><th>Conf Game</th><th>Venue</th><th>Highlights</th><th>More</th></tr>"
+
+    for game in gamelist:
+        # Format the date
+        date = datetime.strptime(game['start_date'], "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%b-%d-%y")
+        # Format the matchup
+        matchup = f"{game['home_team']} {game['home_points']} vs {game['away_team']} {game['away_points']}"
+        # Format the conference game
+        conf_game = "Yes" if game['conference_game'] else "No"
+        # Format the highlights
+        print(game['highlights'])
+        highlights = f"<a href='{game['highlights']}' target='_blank'>Watch Highlights</a>" if game['highlights'] else "-"
+        # Format the more link
+        more = f"<a href='#' onclick=\"fillAndSend('Tell me more about the {game['home_team']} vs {game['away_team']} game in {game['season']}')\">More</a>"
+
+        html_response += f"<tr><td>{date}</td><td>{game['week']}</td><td>{matchup}</td><td>{game['season_type'].capitalize()}</td><td>{conf_game}</td><td>{game['venue']}</td><td>{highlights}</td><td>{more}</td></tr>"
+
+    html_response += "</table>"
+
+    
+    return {
+        "llmfunctiondata": gamelist,
+        "html_response": html_response
+    }
 
     
 def get_team_game_stats(year, game_id, week=None, season_type=None, team=None, conference=None, classification=None):
@@ -151,54 +354,90 @@ def get_game_stats_for_specific_matchup(year, team1, team2):
         regular_season_games = get_list_of_cfb_games(year=year, season_type="regular", team=team1)
         post_season_games = get_list_of_cfb_games(year=year, season_type="postseason", team=team1)
 
-        # Combine the regular season and post season games
-        all_games = regular_season_games + post_season_games
-
+        # Check if regular_season_games and post_season_games are dictionaries
+        if isinstance(regular_season_games, dict) and isinstance(post_season_games, dict):
+            # Combine the regular season and post season games
+            all_games = regular_season_games['llmfunctiondata'] + post_season_games['llmfunctiondata']
+        else:
+            # Handle the case where no games were found
+            all_games = []
         # Find the game where team1 played against team2
         matchup_game = next((game for game in all_games if game['home_team'] == team2 or game['away_team'] == team2), None)
 
         if matchup_game is None:
-            return f"{team1} did not play against {team2} in the {year} season."
+            return {
+                "llmfunctiondata": f"{team1} did not play against {team2} in the {year} season.",
+                "html_response": f"<p>{team1} did not play against {team2} in the {year} season.</p>"
+            }
 
         # Get the game stats for the matchup game
         game_stats = get_team_game_stats(year=year, game_id=matchup_game['id'])
 
-        return game_stats
+        # Prepare the HTML response
+        html_response = "<h2>Game Stats for the Matchup</h2>"
+        html_response += "<table><tr><th>Stat</th><th>Value</th></tr>"
+        for stat, value in game_stats.items():
+            html_response += f"<tr><td>{stat}</td><td>{value}</td></tr>"
+        html_response += "</table>"
+
+        return {
+            "llmfunctiondata": game_stats,
+            "html_response": html_response
+        }
     except Exception as e:
         print(f"An error occurred when calling get_game_stats_for_specific_matchup: {e}")
         return None
 
-
 def get_game_info(year, team1, team2):
     print(f"Getting team vs team matchup info for {year} {team1} {team2}")
     try:
-        # Get the games for team1 in the regular season and post season
-        #regular_season_games = get_list_of_cfb_games(year=year, season_type="regular", team=team1)
-        #post_season_games = get_list_of_cfb_games(year=year, season_type="postseason", team=team1)
-
-        # Combine the regular season and post season games
-        #all_games = regular_season_games + post_season_games
+        print(f"Getting list of cfb games for {year} {team1} ")
         all_games = get_list_of_cfb_games(year=year, team=team1)
 
         # Find the game where team1 played against team2
-        matchup_game = next((game for game in all_games if game['home_team'] == team2 or game['away_team'] == team2), None)
+        matchup_game = next((game for game in all_games['llmfunctiondata'] if game['home_team'] == team2 or game['away_team'] == team2), None)
 
         if matchup_game is None:
-            return f"{team1} did not play against {team2} in the {year} season."
+            return {
+                "llmfunctiondata": f"{team1} did not play against {team2} in the {year} season.",
+                "html_response": f"<p>{team1} did not play against {team2} in the {year} season.</p>"
+            }
 
         # Check if the year is greater than or equal to 2001 as the API only has data for these years
         if year >= 2001:
             # Get the game stats for the matchup game
-            game_stats = get_team_game_stats(year=year, game_id=matchup_game['id'])
+            try:
+                game_stats = get_team_game_stats(year=year, game_id=matchup_game['id'])
+            except Exception as e:
+                print(f"An error occurred when calling get_team_game_stats: {e}")
+                game_stats = None
             # Get the player game stats for the matchup game
-            player_game_stats = get_player_game_stats(year=year, game_id=matchup_game['id'])
+            try:
+                player_game_stats = get_player_game_stats(year=year, game_id=matchup_game['id'])
+            except Exception as e:
+                print(f"An error occurred when calling get_player_game_stats: {e}")
+                player_game_stats = None
+
+            # Check if player_game_stats is None
+            if game_stats is None:
+                print("pgame_stats is None")
+            else:
+                print(f"Type game_stats:")
+            # Check if player_game_stats is None
+            if player_game_stats is None:
+                print("player_game_stats is None")
+            else:
+                print(f"Type of player_game_stats: ")
         else:
             game_stats = None
             player_game_stats = None
 
         # If no game_stats or player_game_stats found, return the matchup_game info
         if not game_stats and not player_game_stats:
-            return f"Match found but no game stats or player game stats available. Match info: {matchup_game}"
+            return {
+                "llmfunctiondata": f"Match found but no game stats or player game stats available. Match info: {matchup_game}",
+                "html_response": f"<p>Match found but no game stats or player game stats available. Match info: {matchup_game}</p>"
+            }
 
         # Remove 'id' from each stat dictionary
         for stat in player_game_stats:
@@ -208,21 +447,103 @@ def get_game_info(year, team1, team2):
         
         # Filter out 'id' from each player's stats
         for team in player_game_stats:
+            print(f"Type of team: {type(team)}, Value: {team}")
             if 'categories' in team:
                 for category in team['categories']:
                     if 'types' in category:
-                        for type in category['types']:
-                            if 'athletes' in type:
-                                for athlete in type['athletes']:
+                        for type_category in category['types']:  # Changed here
+                            if 'athletes' in type_category:  # And here
+                                for athlete in type_category['athletes']:  # And here
                                     athlete.pop('id', None)
 
-        return json.dumps({
-            "game_stats": game_stats,
-            "player_game_stats": player_game_stats,
-        })
+        # Prepare the HTML response
+        date = datetime.strptime(matchup_game['start_date'], "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%B %d, %Y")
+        html_response = f"<h2>{matchup_game['home_team']} {matchup_game['home_points']} vs {matchup_game['away_team']} {matchup_game['away_points']}</h2>"
+        html_response += f"<h3>Date: {date} | Venue: {matchup_game['venue']}</h3>"
+
+
+        html_response += "<h3>Game Stats</h3>"
+
+        # Initialize team stats dictionaries
+        team_stats = {}
+
+        # Iterate over each game_stat in game_stats
+        for game_stat in game_stats:
+
+            # Iterate over each team in the 'teams' key
+            for team in game_stat['teams']:
+                # Add the team's school and points to the team stats
+                team_stats[team['school']] = {stat['category']: stat['stat'] for stat in team['stats']}
+
+        # Prepare the table header
+        # Get the team names
+        home_team, away_team = matchup_game['home_team'], matchup_game['away_team']
+        html_response += f"<table><tr><th>Stat</th><th><a href='#' onclick=\"fillAndSend('Who did {home_team} play in {year}')\">{home_team}</a></th><th><a href='#' onclick=\"fillAndSend('Who did {away_team} play in {year}')\">{away_team}</a></th><th>Differential</th></tr>"
+
+        # Iterate over each stat category
+        for category in game_stats[0]['teams'][0]['stats']:
+            # Get the stats for each team
+            home_team_stat = team_stats[home_team].get(category['category'], 'N/A')
+            away_team_stat = team_stats[away_team].get(category['category'], 'N/A')
+
+            # Calculate the differential
+            try:
+                differential = float(home_team_stat) - float(away_team_stat)
+            except ValueError:
+                differential = 'N/A'
+
+            # Add the stats to the HTML response
+            html_response += f"<tr><td>{category['category']}</td><td>{home_team_stat}</td><td>{away_team_stat}</td><td>{differential}</td></tr>"
+
+        html_response += "</table>"
+
+
+
+        html_response += "<h3>Player Game Stats</h3>"
+
+        # Initialize the new table
+        html_response += "<table><tr><th>Category</th><th>Type</th><th>Team</th><th>Player</th><th>Stat</th></tr>"
+
+        # Create a dictionary to hold the stats in the desired order
+        stats_dict = {}
+
+        # Iterate over each game in player_game_stats
+        for game in player_game_stats:
+            # Iterate over each team in the 'teams' key
+            for team in game['teams']:
+                # Iterate over each category in the 'categories' key
+                for category in team['categories']:
+                    # Iterate over each stat_type in the 'types' key
+                    for stat_type in category['types']:
+                        # Add each player's stat to the dictionary if it's not '0'
+                        for player in stat_type['athletes']:
+                            if player['stat'] != '0':
+                                # Create a key for the category and type if it doesn't exist
+                                if (category['name'], stat_type['name']) not in stats_dict:
+                                    stats_dict[(category['name'], stat_type['name'])] = []
+                                # Add the team, player, and stat to the dictionary
+                                stats_dict[(category['name'], stat_type['name'])].append((team['school'], player['name'], player['stat']))
+
+        # Iterate over the dictionary in the order of Category, Type, Team, Player
+        for (category, stat_type), stats in sorted(stats_dict.items()):
+            for team, player, stat in sorted(stats):
+                html_response += f"<tr><td>{category}</td><td>{stat_type}</td><td>{team}</td><td>{player}</td><td>{stat}</td></tr>"
+
+        html_response += "</table>"
+
+
+
+        # Return the game stats, player game stats, and HTML response
+        return {
+            "llmfunctiondata": {
+                "game_stats": game_stats,
+                "player_game_stats": player_game_stats,
+            },
+            "html_response": html_response
+        }
 
     except Exception as e:
-        print(f"An error occurred when calling get_specific_team_matchup_info: {e}")
+        print(f"An error occurred when calling get_game_info: {e}")
         return None
 
 
@@ -359,40 +680,6 @@ functions = [{
                 "team": {"type": "string", "default": None},
                 "conference": {"type": "string", "default": None},
             }
-        }
-    },
-     {
-        "name": "get_team_game_stats",
-        "output": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "integer"},
-                    "teams": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "school": {"type": "string"},
-                                "conference": {"type": "string"},
-                                "home_away": {"type": "string"},
-                                "points": {"type": "integer"},
-                                "stats": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "category": {"type": "string"},
-                                            "stat": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         },
         "parameters": {
             "type": "object",
@@ -409,71 +696,72 @@ functions = [{
     },
 ]
 
-functions.append({
-    "name": "get_player_game_stats",
-    "output": {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "teams": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "school": {"type": "string"},
-                            "conference": {"type": "string"},
-                            "home_away": {"type": "string"},
-                            "points": {"type": "integer"},
-                            "categories": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {"type": "string"},
-                                        "types": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "name": {"type": "string"},
-                                                    "athletes": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "id": {"type": "integer"},
-                                                                "name": {"type": "string"},
-                                                                "stat": {"type": "string"}
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    },
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "year": {"type": "integer"},
-            "week": {"type": "integer", "default": None},
-            "season_type": {"type": "string", "default": None},
-            "team": {"type": "string", "default": None},
-            "conference": {"type": "string", "default": None},
-            "category": {"type": "string", "default": None},
-            "game_id": {"type": "integer", "default": None},
-        }
-    }
-})
+#functions.append({
+#    "name": "get_player_game_stats",
+#    "output": {
+#        "type": "array",
+#        "items": {
+#            "type": "object",
+#            "properties": {
+#                "id": {"type": "integer"},
+#                "teams": {
+#                    "type": "array",
+#                    "items": {
+#                        "type": "object",
+#                        "properties": {
+#                            "school": {"type": "string"},
+#                            "conference": {"type": "string"},
+#                            "home_away": {"type": "string"},
+#                            "points": {"type": "integer"},
+#                            "categories": {
+#                                "type": "array",
+#                                "items": {
+#                                    "type": "object",
+#                                    "properties": {
+#                                        "name": {"type": "string"},
+#                                        "types": {
+#                                            "type": "array",
+#                                            "items": {
+#                                                "type": "object",
+#                                                "properties": {
+#                                                    "name": {"type": "string"},
+#                                                    "athletes": {
+#                                                        "type": "array",
+#                                                        "items": {
+#                                                            "type": "object",
+#                                                            "properties": {
+#                                                                "id": {"type": "integer"},
+#                                                                "name": {"type": "string"},
+#                                                                "stat": {"type": "string"}
+#                                                            }
+#                                                        }
+#                                                    }
+#                                                }
+#                                            }
+#                                        }
+#                                    }
+#                                }
+#                            }
+#                        }
+#                    }
+#                }
+#            }
+#        }
+#    },
+#    "parameters": {
+#        "type": "object",
+#        "properties": {
+#            "year": {"type": "integer"},
+#            "week": {"type": "integer", "default": None},
+#            "season_type": {"type": "string", "default": None},
+#            "team": {"type": "string", "default": None},
+#            "conference": {"type": "string", "default": None},
+#            "category": {"type": "string", "default": None},
+#            "game_id": {"type": "integer", "default": None},
+#        }
+#    }
+#})
+
 
 functions.append({
     "name": "get_rankings",
@@ -555,6 +843,7 @@ functions.append({
     }
 })
 
+'''
 functions.append({
     "name": "get_roster_by_position",
     "output": {
@@ -590,6 +879,8 @@ functions.append({
         }
     }
 })
+'''
+
 
 
 '''
@@ -869,10 +1160,7 @@ functions.append({
 available_functions = {
     "get_list_of_cfb_games": get_list_of_cfb_games,
     "get_team_records": get_team_records,
-    "get_team_game_stats": get_team_game_stats,
-    "get_player_game_stats": get_player_game_stats,
     "get_rankings": get_rankings,
-    "get_roster_by_position": get_roster_by_position,
     "get_full_roster": get_full_roster,
     "get_game_info": get_game_info,
     "get_team_matchup_history": get_team_matchup_history,
@@ -925,16 +1213,25 @@ def run_conversation(user_input):  # Add user_input as an argument
             print(f"An error occurred: {e}")
             print("Please make sure you provide all required information.")
             return
+        
+         # Check if function_response is not None
+        if function_response is not None:
+            # Check if function_response contains a 'llmfunctiondata' key
+            if 'llmfunctiondata' not in function_response:
+                # If not, create a new function_response that includes the 'llmfunctiondata' key
+                function_response = {
+                    'llmfunctiondata': function_response,
+                    'html_response': ''  # Default HTML response
+                }
 
-        messages.append(response_message)
-        messages.append(
-            {
-                "role": "function",
-                "name": function_name,
-                "content": json.dumps(function_response),
-            }
-        )
-
+            messages.append(response_message)
+            messages.append(
+                {
+                    "role": "function",
+                    "name": function_name,
+                    "content": json.dumps(function_response['llmfunctiondata']),
+                }
+            )
     # Append the assistant's message to the messages list
     if not response_message.get("function_call"):
         messages.append(response_message)
@@ -956,7 +1253,11 @@ def run_conversation(user_input):  # Add user_input as an argument
     # Replace line breaks with <br> for HTML
     response_content_html = response_content.replace('\n', '<br>')
 
-    return response_content_html
+    # Return the response as JSON. 
+    return {
+        "llm_response": response_content_html, # goes to the chatbox
+        "html_response": function_response['html_response'] if function_response else '' # goes to the more info section
+    }
 
 
 
