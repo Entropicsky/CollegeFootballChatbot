@@ -8,6 +8,7 @@ import folium
 import json
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 import pandas as pd
 from collections import Counter
 
@@ -16,6 +17,8 @@ from flask import Flask, request, render_template
 app = Flask(__name__)
 
 global_map_html = ""
+
+load_dotenv()
 
 # setup the flast routing for the home page
 @app.route('/')
@@ -114,8 +117,17 @@ def get_team_matchup_history(team1, team2, min_year=1869, max_year=None):
             # Bold the winning team
             home_team = f"<b>{game['home_team']}</b>" if game['home_team'] == game['winner'] else game['home_team']
             away_team = f"<b>{game['away_team']}</b>" if game['away_team'] == game['winner'] else game['away_team']
-            html_response += f"<tr><td>{game['season']}</td><td>{game['week']}</td><td>{date}</td><td>{winner}</td><td>{venue}</td><td>{home_team}</td><td>{game['home_score']}</td><td>{away_team}</td><td>{game['away_score']}</td><td>{win_diff}</td></tr>"
+            if game['season'] > 2009:
+                season = f"<a href='#' onclick=\"fillAndSend('Tell me more about the {game['home_team']} vs {game['away_team']} game in {game['season']}')\">{game['season']}</a>"
+                home_team = f"<a href='#' onclick=\"fillAndSend('Show me the roster for {game['home_team']} in {game['season']}')\">{game['home_team']}</a>"
+            else:
+                season = game['season']
+                home_team = game['home_team']
+            html_response += f"<tr><td>{season}</td><td>{game['week']}</td><td>{date}</td><td>{winner}</td><td>{venue}</td><td>{home_team}</td><td>{game['home_score']}</td><td>{away_team}</td><td>{game['away_score']}</td><td>{win_diff}</td></tr>"
         html_response += "</table>"
+
+
+
 
         # Add a button to download the data as a CSV file
         html_response += '<button onclick="downloadCSV()">Download as CSV</button>'
