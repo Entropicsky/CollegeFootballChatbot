@@ -12,9 +12,6 @@
         }
         h1 {
             text-align: left; /* Align title to the left */
-            padding: 20px;
-            background-color: #007BFF;
-            color: #fff;
         }
         #chatbox {
             width: 100%; /* Change width to 100% to line up with edges */
@@ -139,7 +136,8 @@
 
 </head>
 <body>
-    <h1>College Football ChatBot</h1>
+    <h1><img src="{{ url_for('static', filename='datadownsouth.gif') }}" alt="datadownsouth" loop muted playsinline></h1>
+
     <div class="tab">
         <button class="tablinks" onclick="openTab(event, 'Chat')" id="defaultOpen">Chat</button>
         <button class="tablinks" onclick="openTab(event, 'History')">History</button>
