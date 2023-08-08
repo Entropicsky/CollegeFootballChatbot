@@ -90,7 +90,7 @@
             background-color: #f4f4f4;
             color: #333;
         }
-        #htmlbox {
+        #htmlbox, #historybox {
             width: 100%; /* Change width to 100% to line up with edges */
             max-width: 760px;
             margin: 0; /* Remove auto margin to align left */
@@ -101,24 +101,24 @@
             overflow: auto; /* Add overflow auto to contain the content within the box */
         }
 
-        #htmlbox table {
+        #htmlbox table, #historybox table {
             width: 100%;
             border-collapse: collapse;
         }
-        #htmlbox th, #htmlbox td {
+        #htmlbox th, #htmlbox td, #historybox th, #historybox td {
             border: 1px solid #ccc;
             padding: 10px;
             text-align: left;
         }
-        #htmlbox th {
+        #htmlbox th, #historybox th {
             background-color: #007BFF;
             color: #fff;
         }
-        #htmlbox h1, #htmlbox h2, #htmlbox h3, #htmlbox h4, #htmlbox h5, #htmlbox h6 {
+        #htmlbox h1, #htmlbox h2, #htmlbox h3, #htmlbox h4, #htmlbox h5, #htmlbox h6, #historybox h1, #historybox h2, #historybox h3, #historybox h4, #historybox h5, #historybox h6 {
             color: #007BFF;
         }
         @media (max-width: 600px) {
-            #chatbox, .input-group, #htmlbox {
+            #chatbox, .input-group, #htmlbox, #historybox {
                 width: 100%;
             }
             .input-group {
